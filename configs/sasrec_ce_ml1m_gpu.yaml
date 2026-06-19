@@ -1,0 +1,45 @@
+data_path: data
+
+USER_ID_FIELD: user_id
+ITEM_ID_FIELD: item_id
+TIME_FIELD: timestamp
+
+load_col:
+  inter: [user_id, item_id, timestamp]
+
+model: SASRec
+loss_type: CE
+
+epochs: 50
+eval_step: 1
+stopping_step: 7
+
+train_batch_size: 2048
+eval_batch_size: 2048
+learning_rate: 0.001
+
+hidden_size: 64
+inner_size: 256
+n_layers: 2
+n_heads: 2
+hidden_dropout_prob: 0.2
+attn_dropout_prob: 0.2
+max_seq_length: 50
+
+train_neg_sample_args: ~
+
+eval_args:
+  group_by: user
+  order: TO
+  split:
+    LS: valid_and_test
+  mode: full
+
+metrics: [Recall, NDCG, MRR]
+topk: [5, 10, 20]
+valid_metric: NDCG@10
+
+seed: 42
+reproducibility: true
+use_gpu: true
+show_progress: true
