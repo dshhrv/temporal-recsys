@@ -10,9 +10,9 @@ load_col:
 model: SASRec
 loss_type: CE
 
-epochs: 100
+epochs: 50
 eval_step: 1
-stopping_step: 10
+stopping_step: 7
 
 train_batch_size: 2048
 eval_batch_size: 2048
