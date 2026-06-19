@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# Local data and experiment artifacts
+data/
+saved/
+log/
+*.pth
+*.pt
+__pycache__/
+log_tensorboard/
