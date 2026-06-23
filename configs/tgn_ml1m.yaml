@@ -5,19 +5,18 @@ meta_path: meta.json
 
 USER_ID_FIELD: user_id
 ITEM_ID_FIELD: item_id
-TIME_FIELD: time_days
+TIME_FIELD: timestamp
 
 model: TGN
-loss_type: BPR
+loss_type: FullCE
 
 epochs: 10
 eval_step: 1
 stopping_step: 5
 
-train_batch_size: 200
-eval_batch_size: 64
+train_batch_size: 16
+eval_batch_size: 32
 learning_rate: 0.0001
-weight_decay: 0.0
 
 memory_dim: 31
 embedding_dim: 31
@@ -25,22 +24,18 @@ time_dim: 100
 
 num_neighbors: 10
 num_attention_heads: 1
-num_negative_items: 1
-
-split:
-  global_temporal: [0.8, 0.1, 0.1]
-  remove_cold_items: true
 
 eval_args:
   mode: full
 
-metrics: [Recall]
+metrics: [Recall, NDCG, MRR]
 topk: [5, 10, 20]
-valid_metric: Recall@10
+valid_metric: NDCG@10
 
 seed: 42
 use_gpu: true
 show_progress: true
 
+time_scale: 1.0
 item_chunk_size: 256
 checkpoint_path: checkpoints/tgn_best.pt

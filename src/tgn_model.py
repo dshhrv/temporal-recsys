@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class TimeEncoder(nn.Module):
@@ -30,7 +29,8 @@ class TemporalGraphAttention(nn.Module):
         query = torch.cat([node_states, node_time], dim=-1).unsqueeze(1)
         attended, _ = self.attention(query, safe_features, safe_features, key_padding_mask=~safe_mask, need_weights=False)
 
-        attended = attended.squeeze(1) * has_neighbors.unsqueeze(-1)
+        attended = attended.squeeze(1)
+        attended = attended * has_neighbors.unsqueeze(-1)
 
         return self.merge(torch.cat([node_states, attended], dim=-1))
 
@@ -52,6 +52,7 @@ class TGN(nn.Module):
 
         self.register_buffer("memory", torch.zeros(self.num_nodes, memory_dim))
         self.register_buffer("last_update", torch.zeros(self.num_nodes))
+        self.register_buffer("all_item_ids", torch.arange(num_users, num_users + num_items))
         self.register_buffer("history_node_ids", torch.zeros(self.num_nodes, num_neighbors, dtype=torch.long))
         self.register_buffer("history_times", torch.zeros(self.num_nodes, num_neighbors))
         self.register_buffer("history_mask", torch.zeros(self.num_nodes, num_neighbors, dtype=torch.bool))
@@ -100,38 +101,26 @@ class TGN(nn.Module):
 
         return self.graph_attention(node_states, zero_time, neighbor_features, mask)
 
-    def forward(self, user_ids, positive_item_ids, negative_item_ids, timestamps):
-        positive_node_ids = positive_item_ids + self.num_users
-        negative_node_ids = negative_item_ids + self.num_users
-
-        user_embeddings = self.encode_nodes(user_ids, timestamps)
-        positive_item_embeddings = self.encode_nodes(positive_node_ids, timestamps)
-        negative_item_embeddings = self.encode_nodes(negative_node_ids, timestamps)
-
-        positive_scores = (user_embeddings * positive_item_embeddings).sum(dim=-1)
-        negative_scores = (user_embeddings * negative_item_embeddings).sum(dim=-1)
-
-        return positive_scores, negative_scores
-
-    def bpr_loss(self, positive_scores, negative_scores):
-        return -F.logsigmoid(positive_scores - negative_scores).mean()
-
-    def score_catalog(self, user_ids, timestamps, candidate_item_ids, item_chunk_size=256):
+    def full_ce_logits(self, user_ids, timestamps, item_chunk_size=32):
         batch_size = user_ids.size(0)
         user_embeddings = self.encode_nodes(user_ids, timestamps)
-        scores = []
+        logits = []
 
-        for item_chunk in candidate_item_ids.split(item_chunk_size):
+        for item_chunk in self.all_item_ids.split(item_chunk_size):
             chunk_size = item_chunk.size(0)
-            item_ids = item_chunk.unsqueeze(0).expand(batch_size, chunk_size).reshape(-1)
-            item_timestamps = timestamps.unsqueeze(1).expand(batch_size, chunk_size).reshape(-1)
+            candidate_ids = item_chunk.unsqueeze(0).expand(batch_size, chunk_size).reshape(-1)
+            candidate_times = timestamps.unsqueeze(1).expand(batch_size, chunk_size).reshape(-1)
 
-            item_node_ids = item_ids + self.num_users
-            item_embeddings = self.encode_nodes(item_node_ids, item_timestamps).reshape(batch_size, chunk_size, -1)
+            candidate_embeddings = self.encode_nodes(candidate_ids, candidate_times)
+            candidate_embeddings = candidate_embeddings.reshape(batch_size, chunk_size, -1)
 
-            scores.append((user_embeddings.unsqueeze(1) * item_embeddings).sum(dim=-1))
+            chunk_logits = (user_embeddings.unsqueeze(1) * candidate_embeddings).sum(dim=-1)
+            logits.append(chunk_logits)
 
-        return torch.cat(scores, dim=1)
+        return torch.cat(logits, dim=1)
+
+    def forward(self, user_ids, timestamps, item_chunk_size=32):
+        return self.full_ce_logits(user_ids, timestamps, item_chunk_size)
 
     def flush_pending_messages(self):
         if not self.pending:
@@ -182,3 +171,6 @@ class TGN(nn.Module):
 
                 self.append_history(user_id, item_node_id, float(timestamp))
                 self.append_history(item_node_id, user_id, float(timestamp))
+                
+                
+                
