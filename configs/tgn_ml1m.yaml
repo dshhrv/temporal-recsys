@@ -36,6 +36,6 @@ seed: 42
 use_gpu: true
 show_progress: true
 
-time_scale: 86400.0
-item_chunk_size: 32
+time_scale: 1.0
+item_chunk_size: 256
 checkpoint_path: checkpoints/tgn_best.pt
