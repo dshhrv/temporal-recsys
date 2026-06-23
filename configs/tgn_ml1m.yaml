@@ -1,0 +1,41 @@
+data_path: data/tgn_ml1m
+
+interactions_path: interactions.csv
+meta_path: meta.json
+
+USER_ID_FIELD: user_id
+ITEM_ID_FIELD: item_id
+TIME_FIELD: timestamp
+
+model: TGN
+loss_type: FullCE
+
+epochs: 10
+eval_step: 1
+stopping_step: 5
+
+train_batch_size: 16
+eval_batch_size: 32
+learning_rate: 0.0001
+
+memory_dim: 31
+embedding_dim: 31
+time_dim: 100
+
+num_neighbors: 10
+num_attention_heads: 1
+
+eval_args:
+  mode: full
+
+metrics: [Recall, NDCG, MRR]
+topk: [5, 10, 20]
+valid_metric: NDCG@10
+
+seed: 42
+use_gpu: true
+show_progress: true
+
+time_scale: 86400.0
+item_chunk_size: 32
+checkpoint_path: checkpoints/tgn_best.pt
