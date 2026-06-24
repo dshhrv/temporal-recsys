@@ -1,0 +1,50 @@
+data_path: /kaggle/input/datasets/dshhrv/tgn-ml1m1
+interactions_path: interactions.csv
+meta_path: meta.json
+
+USER_ID_FIELD: user_id
+ITEM_ID_FIELD: item_id
+USER_INDEX_FIELD: src
+ITEM_INDEX_FIELD: item_idx
+TIME_FIELD: time_days
+
+model: LightGCN
+loss_type: CE
+
+epochs: 50
+eval_step: 1
+stopping_step: 7
+
+train_batch_size: 2048
+eval_batch_size: 512
+learning_rate: 0.001
+weight_decay: 0.0
+embedding_reg_weight: 0.000001
+
+embedding_dim: 64
+num_layers: 3
+use_item_bias: true
+
+split:
+  global_temporal: [0.8, 0.1, 0.1]
+  remove_cold_items: true
+
+eval_args:
+  mode: full
+  validation_graph: train
+  test_graph: train_valid
+  mask_seen_items: true
+
+metrics: [Recall, NDCG, MRR]
+topk: [5, 10, 20]
+valid_metric: Recall@10
+
+seed: 42
+use_gpu: true
+show_progress: true
+
+output_dir: /kaggle/working/lightgcn_ce_results
+checkpoint_name: lightgcn_ce_best.pt
+last_checkpoint_name: lightgcn_ce_last.pt
+epoch_metrics_name: lightgcn_ce_epoch_metrics.csv
+test_metrics_name: lightgcn_ce_test_metrics.csv
