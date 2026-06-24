@@ -109,18 +109,28 @@ class TGN(nn.Module):
 
     def forward(self, user_ids, positive_item_ids, negative_item_ids, timestamps):
         positive_node_ids = positive_item_ids + self.num_users
-        negative_node_ids = negative_item_ids + self.num_users
 
         user_embeddings = self.encode_nodes(user_ids, timestamps)
         positive_item_embeddings = self.encode_nodes(positive_node_ids, timestamps)
-        negative_item_embeddings = self.encode_nodes(negative_node_ids, timestamps)
-
         positive_scores = (user_embeddings * positive_item_embeddings).sum(dim=-1)
-        negative_scores = (user_embeddings * negative_item_embeddings).sum(dim=-1)
+
+        if negative_item_ids.dim() == 1:
+            negative_node_ids = negative_item_ids + self.num_users
+            negative_item_embeddings = self.encode_nodes(negative_node_ids, timestamps)
+            negative_scores = (user_embeddings * negative_item_embeddings).sum(dim=-1)
+        else:
+            batch_size, num_negatives = negative_item_ids.shape
+            negative_node_ids = (negative_item_ids + self.num_users).reshape(-1)
+            negative_timestamps = timestamps.unsqueeze(1).expand(batch_size, num_negatives).reshape(-1)
+            negative_item_embeddings = self.encode_nodes(negative_node_ids, negative_timestamps).reshape(batch_size, num_negatives, -1)
+            negative_scores = (user_embeddings.unsqueeze(1) * negative_item_embeddings).sum(dim=-1)
 
         return positive_scores, negative_scores
 
     def bpr_loss(self, positive_scores, negative_scores):
+        if negative_scores.dim() > positive_scores.dim():
+            positive_scores = positive_scores.unsqueeze(-1)
+
         return -F.logsigmoid(positive_scores - negative_scores).mean()
 
     def make_message(self, self_memory, other_memory, delta_t, edge_features):
