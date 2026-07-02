@@ -38,6 +38,20 @@ def main():
         kind="stable",
     ).reset_index(drop=True)
 
+    n_events = len(ratings)
+
+    train_end = int(n_events * TRAIN_RATIO)
+    valid_end = int(n_events * (TRAIN_RATIO + VALID_RATIO))
+
+    ratings["split"] = "test"
+    ratings.loc[:train_end - 1, "split"] = "train"
+    ratings.loc[train_end:valid_end - 1, "split"] = "valid"
+
+    train_item_ids = set(ratings.loc[ratings["split"] == "train", "item_id"].unique())
+    cold_item_mask = (ratings["split"] != "train") & ~ratings["item_id"].isin(train_item_ids)
+    removed_cold_counts = ratings.loc[cold_item_mask, "split"].value_counts().to_dict()
+    ratings = ratings.loc[~cold_item_mask].reset_index(drop=True)
+
     user_ids = np.sort(ratings["user_id"].unique())
     item_ids = np.sort(ratings["item_id"].unique())
 
@@ -47,32 +61,11 @@ def main():
     user_index = pd.Index(user_ids)
     item_index = pd.Index(item_ids)
 
-    ratings["src"] = user_index.get_indexer(
-        ratings["user_id"]
-    ).astype("int64")
-
-    ratings["dst"] = (
-        n_users + item_index.get_indexer(ratings["item_id"])
-    ).astype("int64")
-
+    ratings["src"] = user_index.get_indexer(ratings["user_id"]).astype("int64")
+    ratings["dst"] = (n_users + item_index.get_indexer(ratings["item_id"])).astype("int64")
     ratings["event_id"] = np.arange(len(ratings), dtype=np.int64)
-
-    ratings["time_days"] = (
-        (ratings["timestamp"] - ratings["timestamp"].min()) / 86400.0
-    ).astype("float32")
-
-    ratings["edge_feat_0"] = (
-        (ratings["rating"] - 1) / 4
-    ).astype("float32")
-
-    n_events = len(ratings)
-
-    train_end = int(n_events * TRAIN_RATIO)
-    valid_end = int(n_events * (TRAIN_RATIO + VALID_RATIO))
-
-    ratings["split"] = "test"
-    ratings.loc[:train_end - 1, "split"] = "train"
-    ratings.loc[train_end:valid_end - 1, "split"] = "valid"
+    ratings["time_days"] = ((ratings["timestamp"] - ratings["timestamp"].min()) / 86400.0).astype("float32")
+    ratings["edge_feat_0"] = (ratings["rating"] / 5.0).astype("float32")
 
     interactions = ratings[
         [
@@ -118,16 +111,23 @@ def main():
     metadata = {
         "dataset": "MovieLens-1M",
         "n_interactions": int(n_events),
+        "n_interactions_after_cold_item_filter": int(len(ratings)),
         "n_users": int(n_users),
         "n_items": int(n_items),
         "n_nodes": int(n_users + n_items),
         "edge_feature_dim": 1,
+        "edge_feature": "rating / 5.0",
         "time_unit": "days",
         "split": {
-            "method": "global chronological 80/10/10",
-            "train": int(train_end),
-            "valid": int(valid_end - train_end),
-            "test": int(n_events - valid_end),
+            "method": "global chronological 80/10/10, then remove validation/test cold items",
+            "train": int((ratings["split"] == "train").sum()),
+            "valid": int((ratings["split"] == "valid").sum()),
+            "test": int((ratings["split"] == "test").sum()),
+            "raw_train": int(train_end),
+            "raw_valid": int(valid_end - train_end),
+            "raw_test": int(n_events - valid_end),
+            "removed_cold_valid": int(removed_cold_counts.get("valid", 0)),
+            "removed_cold_test": int(removed_cold_counts.get("test", 0)),
         },
     }
 

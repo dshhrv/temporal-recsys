@@ -124,14 +124,21 @@ class TGN(nn.Module):
 
     def pair_scores(self, user_ids, positive_item_ids, negative_item_ids, timestamps):
         positive_node_ids = positive_item_ids + self.num_users
-        negative_node_ids = negative_item_ids + self.num_users
 
         user_embeddings = self.encode_nodes(user_ids, timestamps)
         positive_item_embeddings = self.encode_nodes(positive_node_ids, timestamps)
-        negative_item_embeddings = self.encode_nodes(negative_node_ids, timestamps)
-
         positive_scores = (user_embeddings * positive_item_embeddings).sum(dim=-1)
-        negative_scores = (user_embeddings * negative_item_embeddings).sum(dim=-1)
+
+        if negative_item_ids.dim() == 1:
+            negative_node_ids = negative_item_ids + self.num_users
+            negative_item_embeddings = self.encode_nodes(negative_node_ids, timestamps)
+            negative_scores = (user_embeddings * negative_item_embeddings).sum(dim=-1)
+        else:
+            batch_size, num_negatives = negative_item_ids.shape
+            negative_node_ids = (negative_item_ids + self.num_users).reshape(-1)
+            negative_timestamps = timestamps.unsqueeze(1).expand(batch_size, num_negatives).reshape(-1)
+            negative_item_embeddings = self.encode_nodes(negative_node_ids, negative_timestamps).reshape(batch_size, num_negatives, -1)
+            negative_scores = (user_embeddings.unsqueeze(1) * negative_item_embeddings).sum(dim=-1)
 
         if self.item_bias is not None:
             positive_scores = positive_scores + self.item_bias[positive_item_ids]
@@ -140,7 +147,28 @@ class TGN(nn.Module):
         return positive_scores, negative_scores
 
     def bpr_loss(self, positive_scores, negative_scores):
+        if negative_scores.dim() > positive_scores.dim():
+            positive_scores = positive_scores.unsqueeze(-1)
+
         return -F.logsigmoid(positive_scores - negative_scores).mean()
+
+    def make_message(self, self_memory, other_memory, delta_t, edge_features):
+        return torch.cat([self_memory, other_memory, self.time_encoder(delta_t), edge_features], dim=-1)
+
+    def make_messages(self, src_memory, dst_memory, src_delta_t, dst_delta_t, edge_features):
+        src_message = self.make_message(src_memory, dst_memory, src_delta_t, edge_features)
+        dst_message = self.make_message(dst_memory, src_memory, dst_delta_t, edge_features)
+        return src_message, dst_message
+
+    def normalize_edge_features(self, edge_features, reference):
+        if edge_features is None:
+            return reference.new_zeros(reference.size(0), self.edge_dim)
+        edge_features = edge_features.to(device=reference.device, dtype=reference.dtype)
+        if edge_features.dim() == 1:
+            edge_features = edge_features.unsqueeze(-1)
+        if edge_features.size(-1) != self.edge_dim:
+            raise ValueError(f"Expected edge_features with last dimension {self.edge_dim}, got {edge_features.size(-1)}")
+        return edge_features
 
     def score_catalog(self, user_ids, timestamps, candidate_item_ids, item_chunk_size=256):
         batch_size = user_ids.size(0)
