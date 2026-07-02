@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class TimeEncoder(nn.Module):
@@ -121,8 +122,54 @@ class TGN(nn.Module):
 
         return torch.cat(logits, dim=1)
 
-    def forward(self, user_ids, timestamps, item_chunk_size=256):
-        return self.full_ce_logits(user_ids, timestamps, item_chunk_size)
+    def pair_scores(self, user_ids, positive_item_ids, negative_item_ids, timestamps):
+        positive_node_ids = positive_item_ids + self.num_users
+        negative_node_ids = negative_item_ids + self.num_users
+
+        user_embeddings = self.encode_nodes(user_ids, timestamps)
+        positive_item_embeddings = self.encode_nodes(positive_node_ids, timestamps)
+        negative_item_embeddings = self.encode_nodes(negative_node_ids, timestamps)
+
+        positive_scores = (user_embeddings * positive_item_embeddings).sum(dim=-1)
+        negative_scores = (user_embeddings * negative_item_embeddings).sum(dim=-1)
+
+        if self.item_bias is not None:
+            positive_scores = positive_scores + self.item_bias[positive_item_ids]
+            negative_scores = negative_scores + self.item_bias[negative_item_ids]
+
+        return positive_scores, negative_scores
+
+    def bpr_loss(self, positive_scores, negative_scores):
+        return -F.logsigmoid(positive_scores - negative_scores).mean()
+
+    def score_catalog(self, user_ids, timestamps, candidate_item_ids, item_chunk_size=256):
+        batch_size = user_ids.size(0)
+        user_embeddings = self.encode_nodes(user_ids, timestamps)
+        scores = []
+
+        for item_chunk in candidate_item_ids.split(item_chunk_size):
+            chunk_size = item_chunk.size(0)
+            item_ids = item_chunk.unsqueeze(0).expand(batch_size, chunk_size).reshape(-1)
+            item_timestamps = timestamps.unsqueeze(1).expand(batch_size, chunk_size).reshape(-1)
+            item_node_ids = item_ids + self.num_users
+            item_embeddings = self.encode_nodes(item_node_ids, item_timestamps).reshape(batch_size, chunk_size, -1)
+            chunk_scores = (user_embeddings.unsqueeze(1) * item_embeddings).sum(dim=-1)
+
+            if self.item_bias is not None:
+                chunk_scores = chunk_scores + self.item_bias[item_chunk].unsqueeze(0)
+
+            scores.append(chunk_scores)
+
+        return torch.cat(scores, dim=1)
+
+    def forward(self, user_ids, positive_item_ids=None, negative_item_ids=None, timestamps=None, item_chunk_size=256):
+        if positive_item_ids is None and negative_item_ids is None:
+            return self.full_ce_logits(user_ids, timestamps, item_chunk_size)
+
+        if negative_item_ids is None and timestamps is None:
+            return self.full_ce_logits(user_ids, positive_item_ids, item_chunk_size)
+
+        return self.pair_scores(user_ids, positive_item_ids, negative_item_ids, timestamps)
 
     def normalize_edge_features(self, edge_features, reference):
         if edge_features is None:
